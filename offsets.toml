@@ -1,0 +1,43 @@
+[ntoskrnl]
+memmove = { start = "RtlMoveMemory", patterns = ["E8"], add = 0x1, rip = true }
+NtBuildNumber = { start = "NtBuildNumber", patterns = ["? ? ? F0"], read = 32 }
+PteTableBase = { start = "MmGetVirtualForPhysical", patterns = ["48 BA"], add = 0x2 }
+PteTableBaseBlock = { start = "MmGetVirtualForPhysical", patterns = ["48 B8"], add = 0x2 }
+SystemPteList = { start = "MmGetNumberOfFreeSystemPtes", patterns = ["48 8D 0D"], add = 0x3, rip = true }
+EPROCESS_ActiveProcessLinks = { start = "PsGetNextProcess", patterns = ["48 8B 9E", "48 8B 9F"], add = 0x3, read = 32 }
+EPROCESS_ExitStatus = { start = "PsGetProcessExitStatus", patterns = ["8B 81"], add = 0x2, read = 32 }
+ExpCreateCrossVmEvent_ptr_retaddr = { start = "ExpCreateCrossVmEvent", patterns = ["E8 ? ? ? ? 8B"], add = 0x5 }
+MiLocateAddressOffset1 = { patterns = [
+  "49 8B 81 ? ? ? ? 48 85 C0 0F 84 ? ? ? ? 0F B6 50 20",
+  "49 8B 81 ? ? ? ? 48 85 C0 74 38 0F B6 50 20",
+  "49 8B 81 ? ? ? ? 48 85 C0 74 78 0F B6 50 20",
+  "49 8B 82 ? ? ? ? 48 85 C0 74 74 44 0F B6 40",
+], add = 0x3, read = 32 }
+# EndNtQueryKey = { start = "NtQueryValueKey", patterns = ["48 33 CC E8 ? ? ? ? 48 81 C4 ? ? ? ? 41 5F 41 5E"] }
+
+[win32kbase]
+# mov rsi, r8
+# 4C 89 C6
+# mov rdi, r8
+# 4C 89 C7
+# mov r14, r8
+# 4D 89 C6
+ProcessMouseInputData_save_r8_opcode = { start = "_ProcessMouseInputData_CMouseProcessor", patterns = ["? 4C 89 C7", "? 4C 89 C7", "? 4D 8B F0", "? 4C 8B F2"], read = 32 }
+# ProcessMouseInputData_save_r8_opcode = { start = "CMouseProcessor__ProcessMouseInputData", patterns = ["? 4C F8 8B", "? 4C 89 C7", "? 4D 8B F0", "? 4C 8B F2"], read = 32 }
+
+# start = "__0ThreadLockedPerfRegion_InputTraceLogging", 
+InputTraceLogging_ThreadLockedPerfRegion_lambda = { patterns = [
+  "48 8B 05 ? ? ? ? 48 85 C0 0F 84 ? ? ? ? 48 8B 13",
+  "48 8D 05 ? ? ? ? 48 89 ? ? 48 89 ?"
+], add = 0x3, rip = true }
+InputTraceLogging_ThreadLockedPerfRegion_log_mode = { patterns = ["83 3D ? ? ? ? ? 48 8B F2 48 8B D9"], add = 0x2, rip = true, extra = 0x1 }
+
+[nvlddmkm]
+# GpuManagerGetGpuFromId = { patterns = ["0F AE E8 ? ? ? ? ? ? ? ? E8 ? ? ? ? 48 8B 5C 24 ? 48 83 C4 20"], add = 12, rip = true }
+# IsUuidValid = { patterns = ["75 ? 38 ? ? ? 00 00 75 ? BA ? ? ? 10"], add = 0x4, read = 32 }
+IsUuidValid = { patterns = ["80 BB ? ? ? ? ? 74 14 4C 8D 83 ? ? ? ? 41 B9"], add = 0x2, read = 32 }
+GpuManagerGetGpuFromId = { patterns = ["E8 ? ? ? ? 48 8B D8 48 85 C0 0F 84 ? ? ? ? 44 8B 80 ? ? ? ? 48 8D 15"], add = 0x1, rip = true }
+
+[ndis]
+# NdisDeviceControlHandler = { patterns = ["48 89 5C 24 ? 4C 89 44 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 ? 48 81 EC ? ? ? ? 0F"] }
+IfBlock = { patterns = ["48 85 ? 0F 84 ? ? ? ? ? 8B ? ? ? ? ? 33"], add = 12, read = 32 }

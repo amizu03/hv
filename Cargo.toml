@@ -1,0 +1,79 @@
+cargo-features = ["profile-rustflags"]
+
+[package]
+name = "hv"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+# [unstable]
+# mtime-on-use = true
+# build-std = ["core", "alloc"]
+# build-std-features = ["build-std-features=panic_immediate_abort"]
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+debug-assertions = false
+lto = true
+overflow-checks = false
+panic = "abort"
+debug = true
+split-debuginfo = "packed"
+rustflags = [
+  "-Cjump-tables=false",
+  "-Ctarget-feature=+fma",
+  "-Ctarget-feature=+avx",
+  "-Ctarget-feature=+avx2",
+  "-Ccontrol-flow-guard=off",
+  "-Cforce-unwind-tables=on",
+]
+
+[profile.dev]
+opt-level = 1
+panic = "abort"
+debug-assertions = false
+debug = true
+strip = "none"
+split-debuginfo = "packed"
+
+[features]
+default = ["amd"]
+# Architecture support (mutually exclusive)
+amd = []      # AMD SVM support
+intel = []    # Intel VT-x support
+# Platform support
+win10 = []
+win11 = []
+
+[dependencies]
+derive_more = { version = "2", default-features = false, features = ["from", "add", "into"] }
+lde = "0.3.0"
+goldberg = "0.1.0"
+raw-cpuid = "11.6.0"
+x86 = { version = "0.52.0", default-features = false }
+hashbrown = "0.14.3"
+bitreader = { version = "0.3.11", default-features = false }
+spin = { version = "0.9.8", default-features = false, features = ["spin_mutex", "rwlock", "once"] }
+paste = "1.0.14"
+thiserror-no-std = "2.0.2"
+bitflags = "2.4.2"
+static_assertions = "1.1.0"
+obfstr = { version = "*", default-features = false, path = "../obfstr/" }
+fmtools = { version = "*", default-features = false, path = "../fmtools/" }
+rsa = { version = "0.9.10", default-features = false, features = ["pem", "u64_digit", "getrandom"] }
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release.package."*"]
+opt-level = 3
+
+[build-dependencies]
+toml = "0.8.20"
+serde = { version = "1.0", features = ["derive"] }
+pdb = "0.8.0"
+pelite = "*"
+reqwest = { version = "*", features = ["blocking"] }

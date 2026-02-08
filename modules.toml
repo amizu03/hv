@@ -1,0 +1,16 @@
+[modules]
+ksecdd = 0
+wdf01000 = 0
+tpm = 0
+# SmartSAMD = 0
+ci = 0
+disk = 0
+dxgkrnl = 0
+ndis = 0
+ntoskrnl = 0
+nvlddmkm = 0
+# nvmedisk = 0
+storport = 0
+win32k = 0
+win32kbase = 0
+win32kfull = 0
