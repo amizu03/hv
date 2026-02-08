@@ -1,0 +1,29 @@
+[unstable]
+mtime-on-use = true
+build-std = ["core", "alloc", "panic_abort"] 
+build-std-features = ["compiler-builtins-mem"]
+
+[target.x86_64-pc-windows-msvc]
+# linker = "/bin/linker.sh"
+linker = "/home/ses/msvc-wine-rust/linker-scripts/linkx64.sh"
+
+[build]
+target = "x86_64-pc-windows-msvc"
+rustflags = [
+    # Pre Link Args
+    "-Z", "pre-link-arg=/MACHINE:X64",
+    "-Z", "pre-link-arg=/NOLOGO",
+    "-Z", "pre-link-arg=/NXCOMPAT",
+    "-Z", "pre-link-arg=/NODEFAULTLIB",
+    "-Z", "pre-link-arg=/SUBSYSTEM:NATIVE",
+    "-Z", "pre-link-arg=/Driver",
+    "-Z", "pre-link-arg=/DYNAMICBASE",
+    "-Z", "pre-link-arg=/MANIFEST:NO",
+
+    # Post Link Args
+    "-C", "link-arg=/OPT:REF,ICF",
+    # "-C", "link-arg=/MERGE:.edata=.rdata",
+    # "-C", "link-arg=/MERGE:.rustc=.data",
+    # "-C", "link-arg=/SECTION:INIT,d",
+    "-C", "link-arg=/ENTRY:entry",
+]

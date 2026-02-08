@@ -312,3 +312,112 @@ pub enum VmExit {
 }
 
 const_assert!(core::mem::size_of::<VmExit>() == 4);
+
+#[inline(always)]
+pub fn event_inj(
+    vector: u8,
+    vector_type: u8,
+    error_code_valid: bool,
+    valid: bool,
+    error_code: u32,
+) -> u64 {
+    let mut ev = 0;
+
+    ev |= vector as u64;
+    ev |= (vector_type as u64 & 0b111) << 8;
+    ev |= (error_code_valid as u64 & 0b1) << 11;
+    ev |= (valid as u64 & 0b1) << 31;
+    ev |= (error_code as u64) << 32;
+
+    ev
+}
+
+impl VmcbCtrlArea {
+    pub fn inject_event(
+        &mut self,
+        vector: u8,
+        vector_type: u8,
+        error_code_valid: bool,
+        valid: bool,
+        error_code: u32,
+    ) {
+        self.event_inj = event_inj(vector, vector_type, error_code_valid, valid, error_code);
+    }
+
+    pub fn inject_ud(&mut self) {
+        self.inject_event(6, 3, true, true, 0);
+    }
+
+    pub fn inject_gp(&mut self) {
+        self.inject_event(13, 3, true, true, 0);
+    }
+
+    pub fn inject_pf(&mut self, error_code: u32) {
+        self.inject_event(14, 3, true, true, error_code);
+    }
+
+    pub fn inject_db(&mut self) {
+        self.inject_event(1, 3, false, true, 0);
+    }
+
+    pub fn _inject_bp(&mut self) {
+        // Inject #GP(vector = 13, type = 3 = exception) with no error code.
+        // See "#BP - Breakpoint Exception (Vector 3)".
+        self.inject_event(3, 3, false, true, 0);
+    }
+
+    pub fn inject_external_interrupt(&mut self, vector: u8) {
+        // Type 0 = External interrupt
+        self.inject_event(vector, 0, false, true, 0);
+    }
+
+    pub fn inject_nmi(&mut self) {
+        // Vector 2, Type 2 = NMI
+        self.inject_event(2, 2, false, true, 0);
+    }
+
+    /// Inject virtual interrupt using V_IRQ mechanism (software interrupt virtualization)
+    pub fn inject_virq(&mut self, vector: u8, priority: u8) {
+        // Set V_IRQ bit (bit 0)
+        self.vintr |= 1;
+
+        // Set V_INTR_VECTOR (bits 8-15)
+        self.vintr &= !0xFF00;
+        self.vintr |= (vector as u64) << 8;
+
+        // Set V_INTR_PRIO (bits 16-19)
+        self.vintr &= !(0xF << 16);
+        self.vintr |= (priority as u64) << 16;
+
+        // V_IGN_TPR (bit 20) = 0 to respect TPR
+        self.vintr &= !(1 << 20);
+    }
+
+    /// Clear V_IRQ after interrupt delivery
+    pub fn clear_virq(&mut self) {
+        // Clear V_IRQ bit (bit 0)
+        self.vintr &= !1;
+    }
+
+    /// Check if V_IRQ is pending
+    pub fn is_virq_pending(&self) -> bool {
+        (self.vintr & 1) != 0
+    }
+
+    /// Get pending V_IRQ vector
+    pub fn get_virq_vector(&self) -> u8 {
+        ((self.vintr >> 8) & 0xFF) as u8
+    }
+
+    #[cfg(feature = "kvm")]
+    pub fn flush_tlb(&mut self) {
+        self.vmcb_clean &= 0xFFFFFFEF;
+        self.tlb_control |= 1;
+    }
+
+    #[cfg(not(feature = "kvm"))]
+    pub fn flush_tlb(&mut self) {
+        self.vmcb_clean &= 0xFFFFFFEF;
+        self.tlb_control |= 3;
+    }
+}

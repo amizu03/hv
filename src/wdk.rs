@@ -1431,3 +1431,36 @@ pub unsafe fn write_flags(value: u64) {
         );
     }
 }
+
+#[inline(always)]
+pub fn rip() -> usize {
+    let out_rip: usize;
+
+    unsafe {
+        asm!("lea {0}, [rip]", out(reg) out_rip);
+    }
+
+    out_rip
+}
+
+#[inline(always)]
+pub fn rsp() -> usize {
+    let mut out_rsp: usize;
+
+    unsafe {
+        asm!("mov {0}, rsp", out(reg) out_rsp);
+    }
+
+    out_rsp
+}
+
+#[inline(always)]
+pub fn flags() -> usize {
+    let mut flags: usize;
+
+    unsafe {
+        asm!("pushf; pop {}", out(reg) flags);
+    }
+
+    flags
+}

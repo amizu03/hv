@@ -18,20 +18,29 @@
 - **Target**: `x86_64-pc-windows-msvc`
 
 ## Key Dependencies
-- `x86`: x86/x64 CPU intrinsics and operations
-- `raw-cpuid`: CPU feature detection
-- `hashbrown`: Hash map implementation for no-std
-- `spin`: Synchronization primitives for no-std
-- `bitflags`, `bitreader`: Bit manipulation utilities
-- `lde`: Length-Disassembler Engine
-- `goldberg`: Code obfuscation
-- `obfstr`: String obfuscation (local path dependency)
-- `rsa`: Cryptographic operations
+| Crate | Purpose |
+|-------|---------|
+| `x86` | x86/x64 CPU intrinsics and operations |
+| `raw-cpuid` | CPU feature detection |
+| `hashbrown` | Hash map implementation for no-std |
+| `spin` | Synchronization primitives for no-std |
+| `bitflags`, `bitreader` | Bit manipulation utilities |
+| `lde` | Length-Disassembler Engine |
+| `goldberg` | Code obfuscation |
+| `obfstr` | String obfuscation (local path dependency) |
+| `rsa` | Cryptographic operations |
+| `static_assertions` | Compile-time assertions |
+| `thiserror-no-std` | Error handling without std |
+| `derive_more` | Derive macro utilities |
+| `paste` | Token pasting macros |
 
 ## Build-Time Dependencies
-- `pdb`, `pelite`: PE/PDB parsing for symbol extraction
-- `reqwest`: Downloading PDB files from Microsoft Symbol Server
-- `toml`, `serde`: Configuration parsing
+| Crate | Purpose |
+|-------|---------|
+| `pdb` | PDB parsing for symbol extraction |
+| `pelite` | PE file parsing |
+| `reqwest` | Downloading PDB files from Microsoft Symbol Server |
+| `toml`, `serde` | Configuration parsing |
 
 # Project Structure
 
@@ -42,22 +51,22 @@ src/
 ├── lib.rs              # Entry point, hypervisor initialization
 ├── prelude.rs          # Common imports used across modules
 ├── error.rs            # Error types and Result alias
-├── panic.rs            # Panic handler (empty loop)
+├── panic.rs            # Panic handler (calls abort)
 ├── allocator.rs        # Global kernel memory allocator
 ├── wdk.rs              # Windows Driver Kit bindings and wrappers
-├── hash.rs             # Hash utilities
+├── hash.rs             # Hash utilities and simple RNG
 ├── hypervisor/         # Core hypervisor logic
 │   ├── mod.rs          # Hypervisor struct, page tables, CPU virtualization
 │   └── compatibility.rs# Platform detection (Intel vs AMD)
 ├── amd/                # AMD SVM implementation
 │   ├── mod.rs
-│   ├── vcpu.rs         # VCPU setup, VMCB, vmrun/vmenter
+│   ├── vcpu.rs         # VCPU setup, VMCB, vmrun/vmenter, VM exit handling
 │   ├── vmcb.rs         # VMCB structure definitions, VM exit codes
-│   └── instructions.rs # SVM instructions (vmrun, vmload, vmsave, etc.)
+│   └── instructions.rs # SVM instructions (vmrun, vmload, vmsave, stgi)
 ├── intel/              # Intel VT-x implementation
 │   ├── mod.rs
-│   ├── vcpu.rs         # VMXON, VMCS setup, VM entry
-│   └── instructions.rs # VMX instructions
+│   ├── vcpu.rs         # VMXON, VMCS setup, VM entry, VM exit handling
+│   └── instructions.rs # VMX instructions (vmxon, vmclear, vmptrld, etc.)
 └── offsets/            # Auto-generated offset files (by build.rs)
     ├── mod.rs
     ├── modules.rs      # Module base addresses
@@ -142,8 +151,11 @@ The build process is heavily customized via `build.rs`:
 |---------|-------------|
 | `amd` | AMD SVM support (default) |
 | `intel` | Intel VT-x support |
+| `kvm` | Running inside KVM (adjusts TLB flush behavior) |
 | `win10` | Windows 10 specific code paths (auto-set by build.rs) |
 | `win11` | Windows 11 specific code paths (auto-set by build.rs) |
+
+**Note**: `amd` and `intel` features are mutually exclusive. Build will fail if both are enabled.
 
 # Architecture
 
@@ -177,12 +189,14 @@ The build process is heavily customized via `build.rs`:
 
 ## Key Data Structures
 
-- `Hypervisor`: Central hypervisor state, page table management
-- `VCpu`: Virtual CPU state (architecture-specific)
-- `Vmcb` (AMD): Virtual Machine Control Block
-- `Vmcs` (Intel): Virtual Machine Control Structure
-- `GuestRegisters`: Saved guest register state
-- `KTrapFrame`: Windows KTRAP_FRAME for debugging
+| Structure | Purpose |
+|-----------|---------|
+| `Hypervisor` | Central hypervisor state, page table management |
+| `VCpu` | Virtual CPU state (architecture-specific) |
+| `Vmcb` (AMD) | Virtual Machine Control Block |
+| `Vmcs` (Intel) | Virtual Machine Control Structure |
+| `GuestRegisters` | Saved guest register state |
+| `KTrapFrame` | Windows KTRAP_FRAME for debugging |
 
 # Development Conventions
 

@@ -2,7 +2,7 @@ pub mod compatibility;
 
 use core::{
     array,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 
 #[cfg(feature = "amd")]
@@ -10,12 +10,14 @@ use crate::amd;
 #[cfg(feature = "intel")]
 use crate::intel;
 
-use crate::{dbg, hypervisor::compatibility::Platform, prelude::*};
+use crate::{dbg, hypervisor::compatibility::Platform, prelude::*, println};
 
 #[cfg(feature = "amd")]
 pub type VCpu = amd::vcpu::VCpu;
 #[cfg(feature = "intel")]
 pub type VCpu = intel::vcpu::VCpu;
+
+pub static mut EXECUTING_VCPU: usize = 0;
 
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
@@ -44,7 +46,7 @@ pub struct Hypervisor {
     pub phys_mem_ranges: [PhysMemRange; 12],
     pub phys_mem_ranges_len: usize,
     pub pages_buffer: IndependentPages<128>,
-    pub pages_buffer_cursor: usize,
+    pub pages_buffer_cursor: AtomicUsize,
     pub pml4: [(usize, IndependentPages<1>); PageTableIndex::Count as usize],
     pub msr_permissions_bitmap: IndependentPages<2>,
 }
@@ -58,22 +60,43 @@ pub enum PageTableIndex {
     Count,
 }
 
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub enum VmExitType {
+    ExitHypervisor,
+    IncrementRIP,
+    Continue,
+}
+
 pub trait VCpuGeneric {
     fn enable(&mut self) -> Result<()>;
-    fn setup(&mut self, hv: &mut Hypervisor, ctx: &Context) -> Result<()>;
+    fn setup(&mut self, hv: &mut Hypervisor, rip: u64, rsp: u64, rflags: u64) -> Result<()>;
+
+    fn advance_rip(&mut self) -> Result<()>;
+    fn inject_ud(&mut self) -> Result<()>;
+    fn inject_gp(&mut self) -> Result<()>;
+    fn inject_pf(&mut self, error_code: u32) -> Result<()>;
+    fn inject_db(&mut self) -> Result<()>;
+    fn inject_bp(&mut self) -> Result<()>;
+    fn inject_external_interrupt(&mut self, vector: u8) -> Result<()>;
+
+    fn inject_nmi(&mut self) -> Result<()>;
+
+    fn flush_tlb(&mut self) -> Result<()>;
 }
 
 static VIRTUALIZED_BITSET: AtomicU64 = AtomicU64::new(0);
 
 #[inline(always)]
-pub fn is_virtualized(ncpu: u32) -> bool {
+pub fn is_virtualized() -> bool {
+    let ncpu = current_processor_number();
     let bit = 1 << (ncpu as u64);
 
     VIRTUALIZED_BITSET.load(Ordering::Relaxed) & bit != 0
 }
 
 #[inline(always)]
-pub fn set_virtualized(ncpu: u32) {
+pub fn set_virtualized() {
+    let ncpu = current_processor_number();
     let bit = 1 << (ncpu as u64);
 
     VIRTUALIZED_BITSET.fetch_or(bit, Ordering::Relaxed);
@@ -88,25 +111,29 @@ impl Hypervisor {
         &self.pml4[index as usize]
     }
 
-    pub fn alloc_page(&mut self) -> Result<usize> {
+    pub fn alloc_page(&self) -> Result<usize> {
         let pages = self.pages_buffer.alloc;
 
         unsafe {
-            if self.pages_buffer_cursor >= PTES_PER_PAGE * 128 {
+            // Atomically fetch and increment the cursor
+            let cursor = self.pages_buffer_cursor.fetch_add(1, Ordering::SeqCst);
+
+            if cursor >= PTES_PER_PAGE * 128 {
+                // Try to restore the cursor (best effort)
+                self.pages_buffer_cursor
+                    .store(PTES_PER_PAGE * 128, Ordering::SeqCst);
                 return Err(HypervisorError::OutOfMemory);
             }
 
-            let entry = ((self.pages_buffer.alloc + self.pages_buffer_cursor * size_of::<usize>())
-                as *const usize)
+            let entry = ((self.pages_buffer.alloc + cursor * size_of::<usize>()) as *const usize)
                 .read_unaligned();
-            self.pages_buffer_cursor += 1;
 
             Ok(entry)
         }
     }
 
     pub fn alloc_pt(
-        &mut self,
+        &self,
         supervisor: bool,
         writeable: bool,
         executable: bool,
@@ -124,7 +151,7 @@ impl Hypervisor {
 
     /// Assign a page table entry using 2MB large pages when possible
     pub fn assign_pt(
-        &mut self,
+        &self,
         npml4: usize,
         pa: usize,
         supervisor: bool,
@@ -207,7 +234,7 @@ impl Hypervisor {
 
     /// Build page tables with memory limit and large page support
     pub fn build_pts(
-        &mut self,
+        &self,
         npml4: *mut [usize; 0x200],
         supervisor: bool,
         writeable: bool,
@@ -227,9 +254,13 @@ impl Hypervisor {
             // Fall back to 4KB pages for non-aligned regions
             let pfn_start = range.start & LARGE_PFN_MASK;
             let pfn_end = (range.start + range.size + (PAGE_SIZE_2MB - 1)) & LARGE_PFN_MASK;
+            // let pfn_start = range.start & PFN_MASK;
+            // let pfn_end = (range.start + range.size + (PAGE_SIZE - 1)) & PFN_MASK;
 
             for pfn in (pfn_start..pfn_end).step_by(PAGE_SIZE_2MB) {
-                self.assign_pt(ncr3, pfn, supervisor, writeable, executable, true);
+                // for pfn in (pfn_start..pfn_end).step_by(PAGE_SIZE) {
+                self.assign_pt(ncr3, pfn, supervisor, writeable, executable, true)?;
+                // self.assign_pt(ncr3, pfn, supervisor, writeable, executable, false)?;
             }
         }
 
@@ -248,56 +279,58 @@ impl Hypervisor {
         Ok(ncr3)
     }
 
+    #[inline(never)]
+    #[optimize(speed)]
     pub fn virtualize_cpu(&mut self) -> Result<()> {
         let ncpu = current_processor_number();
-        dbg!(ncpu);
 
         const VCPU_SIZE: usize = size_of::<VCpu>();
         let vcpu = IndependentPages::<VCPU_SIZE>::new(true, false);
         vcpu.zero();
         let vcpu = vcpu.leak::<VCpu>();
 
-        let mut ctx = Context::default();
-        ctx.capture();
+        let flags = flags();
+        let rsp = rsp();
+        let rip = rip();
 
-        if !is_virtualized(ncpu) {
-            set_virtualized(ncpu);
+        if !is_virtualized() {
+            set_virtualized();
 
             vcpu.enable()?;
-            vcpu.setup(self, &ctx)?;
+            vcpu.setup(self, rip as _, rsp as _, flags as _)?;
+
+            abort();
         }
 
+        // This point is only reached if virtualization fails or exits
+        // Normally vcpu.setup -> vmenter never returns
         Ok(())
     }
 
-    pub fn virtualize_all_cpus(&mut self) -> Result<()> {
+    /// Entry point for per-CPU virtualization threads
+    extern "system" fn virtualize_cpus(&mut self) {
         let nproc = active_processor_count() as usize;
 
+        // unsafe {
+        //     EXECUTING_VCPU = self as *mut _ as usize;
+        // }
+
+        // Create a separate thread for each CPU
         for i in 0..nproc {
             let original_affinity = set_system_affinity_thread(1 << i);
 
+            // ke_yield_execution();
+
             if let Err(e) = self.virtualize_cpu() {
                 revert_to_user_affinity_thread(original_affinity);
-                return Err(e);
             }
 
             revert_to_user_affinity_thread(original_affinity);
         }
-
-        Ok(())
-    }
-
-    #[inline(never)]
-    #[optimize(size)]
-    pub fn _virtualize_all_cpus(&mut self) {
-        let _ = self.virtualize_all_cpus();
     }
 
     pub fn virtualize(&mut self) {
-        create_thread(
-            Self::_virtualize_all_cpus as *const (),
-            (self as *mut Self).addr(),
-        );
+        create_thread(Self::virtualize_cpus as *const (), self as *mut _ as usize);
     }
 
     fn build_msr_permissions_bitmap() -> IndependentPages<2> {
@@ -404,7 +437,7 @@ impl Hypervisor {
             phys_mem_ranges,
             phys_mem_ranges_len,
             pages_buffer,
-            pages_buffer_cursor: 0,
+            pages_buffer_cursor: AtomicUsize::new(0),
             apic_bar,
             pml4,
             msr_permissions_bitmap,

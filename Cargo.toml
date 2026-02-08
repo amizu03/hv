@@ -40,7 +40,8 @@ strip = "none"
 split-debuginfo = "packed"
 
 [features]
-default = ["amd"]
+default = ["kvm", "amd"]
+kvm = [] # Running inside kvm
 # Architecture support (mutually exclusive)
 amd = []      # AMD SVM support
 intel = []    # Intel VT-x support

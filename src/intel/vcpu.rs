@@ -741,7 +741,7 @@ impl VCpuGeneric for VCpu {
         Ok(())
     }
 
-    fn setup(&mut self, hv: &mut Hypervisor, ctx: &Context) -> Result<()> {
+    fn setup(&mut self, hv: &mut Hypervisor, rip: u64, rsp: u64, rflags: u64) -> Result<()> {
         let vmcs_pa = virt_to_phys(&raw mut self.vmcs as *mut _ as usize);
         let msrpm_pa = virt_to_phys(hv.msr_permissions_bitmap.alloc);
 
@@ -768,9 +768,9 @@ impl VCpuGeneric for VCpu {
 
             vmwrite(fields::GUEST_DR7 as u32, unsafe { dr7().0 as u64 });
 
-            vmwrite(fields::GUEST_RSP as u32, ctx.rsp);
-            vmwrite(fields::GUEST_RIP as u32, ctx.rip);
-            vmwrite(fields::GUEST_RFLAGS as u32, ctx.eflags as _);
+            vmwrite(fields::GUEST_RSP as u32, rsp);
+            vmwrite(fields::GUEST_RIP as u32, rip);
+            vmwrite(fields::GUEST_RFLAGS as u32, rflags as _);
 
             vmwrite(fields::GUEST_CS_SELECTOR as u32, cs().bits() as _);
             vmwrite(fields::GUEST_SS_SELECTOR as u32, ss().bits() as _);
@@ -992,6 +992,42 @@ impl VCpuGeneric for VCpu {
             invvpid_single_context(VPID_TAG);
         }
 
+        Ok(())
+    }
+
+    fn advance_rip(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn inject_ud(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn inject_gp(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn inject_pf(&mut self, error_code: u32) -> Result<()> {
+        Ok(())
+    }
+
+    fn inject_db(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn inject_bp(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn inject_external_interrupt(&mut self, vector: u8) -> Result<()> {
+        Ok(())
+    }
+
+    fn inject_nmi(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn flush_tlb(&mut self) -> Result<()> {
         Ok(())
     }
 }
